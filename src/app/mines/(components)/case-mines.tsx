@@ -23,7 +23,7 @@ interface IFormData {
 }
 
 export function CaseMines({ mines }: { mines: number[] }) {
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const [openInfoModal, setOpenInfoModal] = useState(false);
   const [sound, setSound] = useState(true);
@@ -38,6 +38,12 @@ export function CaseMines({ mines }: { mines: number[] }) {
   const [credentials, setCredentials] = useState({});
 
   const [reveal, setReveal] = useState<number[]>([]);
+
+  const [parameters, setParameters] = useState("");
+
+  const [money, setMoney] = useState(0);
+
+  const [openned, setOpenned] = useState(0);
 
   const { register, handleSubmit, watch, setValue } = useForm<IFormData>({
     defaultValues: {
@@ -55,31 +61,74 @@ export function CaseMines({ mines }: { mines: number[] }) {
       id: "1",
       ...credentials,
       mines: watchMines.toString(),
+      value: watchValue.toString(),
     });
 
-    console.log(params.toString());
+    if (startGame) {
+      axios.get(`http://191.241.144.59:25565/mines/endGame?${params.toString()}`).then(res => {
+        if (res.data.success) {
+          setStartGame(false);
 
-    axios.get(`http://191.241.144.59:25565/mines/newGame?${params.toString()}`).then(res => {
-      console.log(res.data)
-      if (res.data.success) {
-        setGameOver(false);
-        setStartGame(true);
-        setMinesValues(Array(25).fill(0));
+          const nowValues = minesValues;
 
-        setReveal(Array(25).fill(0));
-      } else if (res.data.error && res.data.error === 'User already in game') {
-        setGameOver(false);
-        setStartGame(true);
-        setMinesValues(Array(25).fill(0));
+          console.log(nowValues)
+          for (let i = 0; i < 5; i++) {
+            for (let j = 0; j < 5; j++) {
+              nowValues[i * 5 + j] = res.data.grid[i][j].number;
+            }
+          };
 
-        setReveal(r => {
-          for (let i = 0; i < res.data.lastGrid.length; i++) {
-            r[i] = res.data.lastGrid[i]
-          }
-          return r
-        });
-      }
-    })
+          setReveal(Array(25).fill(1));
+
+          alert(`Você ganhou R$${res.data.receivedValue.toFixed(2)}!`)
+        }
+      })
+      return;
+    } else {
+      axios.get(`http://191.241.144.59:25565/mines/newGame?${params.toString()}`).then(res => {
+        if (res.data.success) {
+          setGameOver(false);
+          setStartGame(true);
+          setMinesValues(Array(25).fill(0));
+
+          setReveal(Array(25).fill(0));
+        } else if (res.data.error && res.data.error === 'User already in game') {
+          setGameOver(false);
+          setStartGame(true);
+          setMinesValues(Array(25).fill(0));
+
+          setReveal(r => {
+            for (let i = 0; i < res.data.lastGrid.length; i++) {
+              r[i] = res.data.lastGrid[i]
+
+              if (res.data.lastGrid[i] === 1) {
+                setOpenned(o => o + 1);
+                console.log('eh 1')
+              } else {
+                console.log('nao eh 1')
+              }
+            }
+            return r
+          });
+        } else {
+          alert(res.data.error)
+        }
+      })
+    }
+  }
+
+  function render() {
+    const PROBABILITY = (25 - Number(watchMines)) / 25;
+
+    const opennedMines = openned;
+
+    console.log(opennedMines);
+
+    const multiplier = 0.97 / Math.pow(PROBABILITY, opennedMines);
+
+    const valueToReceive = Number(watchValue) * multiplier;
+
+    return valueToReceive
   }
 
   function handleHalfClick() {
@@ -125,32 +174,36 @@ export function CaseMines({ mines }: { mines: number[] }) {
     }
   }, [gameOver]);
 
-  // useEffect(() => {
-  //   if (startGame) {
-  //     const params = new URLSearchParams({
-  //       user: 'pauloheroo',
-  //       id: "1",
-  //       mines: watchMines.toString(),
-  //     });
-
-  //     axios.get(`http://191.241.144.59:25565/startGame?${params.toString()}`).then(res => {
-  //       if (res.data.success) {
-  //         setMinesValues(Array(25).fill(0));
-  //       } else {
-  //         setStartGame(false);
-  //       }
-  //     })
-  //   }
-  // }, [startGame]);
-
   useEffect(() => {
     const paramsString = window.location.href.split('?')[1];
-
-    const jsonParams = {};
 
     const params = Object.fromEntries(new URLSearchParams(paramsString).entries());
 
     setCredentials(params);
+
+    const URLS = new URLSearchParams(params);
+
+    setParameters(URLS.toString());
+
+    axios.get(`http://191.241.144.59:25565/mines/checkGame?${URLS.toString()}`).then(res => {
+      setLoading(false)
+      if (res.data.status) {
+        setGameOver(false);
+        setStartGame(true);
+        setMinesValues(Array(25).fill(0));
+
+        setReveal(r => {
+          for (let i = 0; i < res.data.game.length; i++) {
+            r[i] = res.data.game[i];
+
+            if (res.data.game[i] === 1) {
+              setOpenned(o => o + 1);
+            }
+          }
+          return r
+        });
+      }
+    })
   }, []);
 
   return (
@@ -217,7 +270,7 @@ export function CaseMines({ mines }: { mines: number[] }) {
               {loading
                 ? 'Carregando...'
                 : startGame
-                  ? 'Retirar o dinheiro'
+                  ? `Retirar o dinheiro (${render().toFixed(2)})`
                   : 'Começar o jogo'}
             </button>
           </form>
@@ -277,10 +330,8 @@ export function CaseMines({ mines }: { mines: number[] }) {
                     ...credentials
                   });
 
-                  console.log(`http://191.241.144.59:25565/mines/openMine?${paramsS.toString()}`, reveal[index])
                   const check = await axios.get(`http://191.241.144.59:25565/mines/openMine?${paramsS.toString()}`);
 
-                  console.log(check.data)
                   if (!gameOver && check.data.result === "Mine") {
                     const fullGrid = check.data.grid;
 
@@ -295,6 +346,8 @@ export function CaseMines({ mines }: { mines: number[] }) {
                     console.log(nowValues)
                     setGameOver(true);
                     setClickedMineIndex(index);
+                  } else {
+                    setOpenned(openned + 1);
                   }
                 }}
               />
